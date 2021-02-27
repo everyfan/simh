@@ -135,7 +135,6 @@
         i1401_sys.c     add sim_devices table entry
 */
 
-#include <assert.h>
 #include "i1401_defs.h"
 #include "i1401_dat.h"
 
@@ -599,6 +598,18 @@ while (reason == 0) {                                   /* loop until halted */
    B-address (or both) are invalid.
 */
 
+    La = 0;
+    Lb = 0;
+    Li = 0;
+    Lf = 0;
+    Ls = 0;
+    Lx = 0;
+    Ly = 0;
+    Lc = 0;
+    Lm = 0;
+    Lr = 0;
+    Lq = 0;
+
     if ((M[IS] & WM) == 0) {                            /* I-Op: WM under op? */
         reason = STOP_NOWM;                             /* no, error */
         sim_interval--;
@@ -606,7 +617,6 @@ while (reason == 0) {                                   /* loop until halted */
         }
     op = M[IS] & CHAR;                                  /* get opcode */
     Li++;
-    assert(Li == 1);
     flags = op_table[op];                               /* get op flags */
     if ((flags == 0) || (flags & ALLOPT & ~cpu_unit.flags)) {
         reason = STOP_NXI;                              /* illegal inst? */
@@ -617,7 +627,6 @@ while (reason == 0) {                                   /* loop until halted */
     PP (IS);
 
     Li++;
-    assert(Li == 2);
     if ((t = M[IS]) & WM)                               /* I-1: WM? 1 char inst */
         goto CHECK_LENGTH;
     D = ioind = t;                                      /* could be D char, % */
@@ -636,7 +645,6 @@ while (reason == 0) {                                   /* loop until halted */
     PP (IS);
 
     Li++;
-    assert(Li == 3);
     if ((t = M[IS]) & WM) {                             /* I-3: WM? 3 char inst */
         AS = AS | BA;                                   /* ASTAR bad */
         if (!(flags & MLS))
@@ -658,7 +666,6 @@ while (reason == 0) {                                   /* loop until halted */
     PP (IS);
 
     Li++;
-    assert(Li == 4);
     if ((t = M[IS]) & WM)                               /* I-4: WM? 4 char inst */
         goto CHECK_LENGTH;
     if ((op == OP_B) && (t == BCD_BLANK))               /* BR + space? */
@@ -668,7 +675,6 @@ while (reason == 0) {                                   /* loop until halted */
     PP (IS);
 
     Li++;
-    assert(Li == 5);
     if ((t = M[IS]) & WM) {                             /* I-5: WM? 5 char inst */
         BS = BS | BA;                                   /* BSTAR bad */
         goto CHECK_LENGTH;
@@ -678,7 +684,6 @@ while (reason == 0) {                                   /* loop until halted */
     PP (IS);
 
     Li++;
-    assert(Li == 6);
     if ((t = M[IS]) & WM) {                             /* I-6: WM? 6 char inst */
         BS = BS | BA;                                   /* BSTAR bad */
         goto CHECK_LENGTH;
@@ -697,7 +702,6 @@ while (reason == 0) {                                   /* loop until halted */
         goto CHECK_LENGTH;
 
     Li++;
-    assert(Li == 7);
     if ((t = M[IS]) & WM)                               /* WM? 7 char inst */
         goto CHECK_LENGTH;
     D = t;                                              /* last char is D */
