@@ -174,8 +174,9 @@ typedef struct {
                             reason = STOP_INVBR; \
                             break; \
                             } \
-                        if (cpu_unit.flags & XSA) \
-                            BS = IS; \
+                        if (cpu_unit.flags & XSA) { \
+                            sim_interval -= 1; \
+                            BS = IS;} \
                         else BS = BA + 0; \
                         PCQ_ENTRY; \
                         IS = AS;
@@ -528,6 +529,19 @@ int32 carry, lowprd, sign, ps;
 int32 quo, qs;
 int32 qzero, qawm, qbody, qsign, qdollar, qaster, qdecimal;
 t_stat reason, r1, r2;
+int32 La = 0; // Length of A Field
+int32 Lb = 0; // Length of B Field
+int32 Li = 0; // Length of instruction.
+int32 Lf = 0; // Length of field.
+int32 Ls = 0; // # of characters per sector
+#define Lw (min(La, Lb))
+int32 Lx = 0; // # of characters to be cleared
+int32 Ly = 0; // # of characters back to right-most "0" in control field
+int32 Lc = 0; // Length of multiplicand field
+int32 Lm = 0; // Length of multiplier field
+int32 Lr = 0; // Divisor length
+int32 Lq = 0; // Quotient length
+
 
 /* Restore saved state */
 
@@ -559,7 +573,7 @@ while (reason == 0) {                                   /* loop until halted */
         break;
         }
 
-    sim_interval = sim_interval - 1;
+    // sim_interval = sim_interval - 1;
 
 /* Instruction fetch - 1401 fetch works as follows:
 
@@ -586,9 +600,12 @@ while (reason == 0) {                                   /* loop until halted */
 
     if ((M[IS] & WM) == 0) {                            /* I-Op: WM under op? */
         reason = STOP_NOWM;                             /* no, error */
+        sim_interval--;
         break;
         }
     op = M[IS] & CHAR;                                  /* get opcode */
+    Li++;
+    assert(Li == 1);
     flags = op_table[op];                               /* get op flags */
     if ((flags == 0) || (flags & ALLOPT & ~cpu_unit.flags)) {
         reason = STOP_NXI;                              /* illegal inst? */
@@ -598,12 +615,15 @@ while (reason == 0) {                                   /* loop until halted */
         BS = AS;
     PP (IS);
 
+    Li++;
+    assert(Li == 2);
     if ((t = M[IS]) & WM)                               /* I-1: WM? 1 char inst */
         goto CHECK_LENGTH;
     D = ioind = t;                                      /* could be D char, % */
     AS = hun_table[t];                                  /* could be A addr */
     PP (IS);                                            /* if %xy, BA is set */
 
+    Li++;
     if ((t = M[IS]) & WM) {                             /* I-2: WM? 2 char inst */
         AS = AS | BA;                                   /* ASTAR bad */
         if (!(flags & MLS))
@@ -614,6 +634,8 @@ while (reason == 0) {                                   /* loop until halted */
     AS = AS + ten_table[t];                             /* build A addr */
     PP (IS);
 
+    Li++;
+    assert(Li == 3);
     if ((t = M[IS]) & WM) {                             /* I-3: WM? 3 char inst */
         AS = AS | BA;                                   /* ASTAR bad */
         if (!(flags & MLS))
@@ -634,6 +656,8 @@ while (reason == 0) {                                   /* loop until halted */
         BS = AS;
     PP (IS);
 
+    Li++;
+    assert(Li == 4);
     if ((t = M[IS]) & WM)                               /* I-4: WM? 4 char inst */
         goto CHECK_LENGTH;
     if ((op == OP_B) && (t == BCD_BLANK))               /* BR + space? */
@@ -642,6 +666,8 @@ while (reason == 0) {                                   /* loop until halted */
     BS = hun_table[t];                                  /* could be B addr */
     PP (IS);
 
+    Li++;
+    assert(Li == 5);
     if ((t = M[IS]) & WM) {                             /* I-5: WM? 5 char inst */
         BS = BS | BA;                                   /* BSTAR bad */
         goto CHECK_LENGTH;
@@ -650,6 +676,8 @@ while (reason == 0) {                                   /* loop until halted */
     BS = BS + ten_table[t];                             /* build B addr */
     PP (IS);
 
+    Li++;
+    assert(Li == 6);
     if ((t = M[IS]) & WM) {                             /* I-6: WM? 6 char inst */
         BS = BS | BA;                                   /* BSTAR bad */
         goto CHECK_LENGTH;
@@ -666,12 +694,16 @@ while (reason == 0) {                                   /* loop until halted */
 
     if (flags & NOWM)                                   /* I-7: SWM? done */
         goto CHECK_LENGTH;
+
+    Li++;
+    assert(Li == 7);
     if ((t = M[IS]) & WM)                               /* WM? 7 char inst */
         goto CHECK_LENGTH;
     D = t;                                              /* last char is D */
     while (((t = M[IS]) & WM) == 0) {                   /* I-8: repeats until WM */
         D = t;                                          /* last char is D */
         PP (IS);
+        Li++;
         }
     if (reason)                                         /* addr err on last? */
         break;
@@ -739,8 +771,11 @@ CHECK_LENGTH:
             wm = M[AS] | M[BS];
             M[BS] = (M[BS] & WM) | (M[AS] & CHAR);      /* move char */
             MM (AS);                                    /* decr pointers */
+            La++;
             MM (BS);
+            Lb++;
             } while ((wm & WM) == 0);                   /* stop on A,B WM */
+            sim_interval -= Li + 1 + 2 * Lw;
         break;
 
     case OP_LCA:                                        /* load char */
@@ -755,8 +790,11 @@ CHECK_LENGTH:
         do {
             wm = M[BS] = M[AS];                         /* move char + wmark */
             MM (AS);                                    /* decr pointers */
+            La++;
             MM (BS);
+            Lb++;
             } while ((wm & WM) == 0);                   /* stop on A WM */
+            sim_interval -= Li + 1 + 2 * La;
         break;
 
 /* Other move instructions                              A check B check
@@ -780,13 +818,16 @@ CHECK_LENGTH:
    8+           normal + ignored modifier
 */
 
+
     case OP_MCM:                                        /* move to rec/group */
         do {
             t = M[AS];
             M[BS] = (M[BS] & WM) | (M[AS] & CHAR);      /* move char */
             PP (AS);                                    /* incr pointers */
+            La++;
             PP (BS);
             } while (((t & CHAR) != BCD_RECMRK) && (t != (BCD_GRPMRK + WM)));
+            sim_interval -= Li + 1 + 2 * La;
         break;
 
     case OP_MCS:                                        /* move suppress zero */
@@ -796,10 +837,14 @@ CHECK_LENGTH:
             wm = M[AS];
             M[BS] = M[AS] & ((BS != bsave)? CHAR: DIGIT);/* copy char */
             MM (AS);                                    /* decr pointers */
+            La++;
             MM (BS);
             } while ((wm & WM) == 0);                   /* stop on A WM */
-        if (reason)                                     /* addr err? stop */
-            break;
+            if (reason)                                     /* addr err? stop */
+            {
+                sim_interval -= Li + 1 + 3 * La; // Probably not 3*La for exit here
+                break;
+            }
         do {
             PP (BS);                                    /* adv B */
             t = M[BS];                                  /* get B, cant be WM */
@@ -814,18 +859,21 @@ CHECK_LENGTH:
             else qzero = 1;
             } while (BS < bsave);
         PP (BS);                                        /* BS end is B+1 */
+        sim_interval -= Li + 1 + 3 * La;
         break;  
 
     case OP_MN:                                         /* move numeric */
         M[BS] = (M[BS] & ~DIGIT) | (M[AS] & DIGIT);     /* move digit */
         MM (AS);                                        /* decr pointers */
         MM (BS);
+        sim_interval -= Li + 3;
         break;
 
     case OP_MZ:                                         /* move zone */
         M[BS] = (M[BS] & ~ZONE) | (M[AS] & ZONE);       /* move high bits */
         MM (AS);                                        /* decr pointers */
         MM (BS);
+        sim_interval -= Li + 3;
         break;
 
 /* Branch instruction                                   A check     B check
@@ -841,9 +889,9 @@ CHECK_LENGTH:
                 d is last character of B-address
    8            branch if B char equals d               if branch   here
 */
-
     case OP_B:                                          /* branch */
         if (ilnt == 4) {                                /* uncond branch? */
+            sim_interval -= Li + 1;
             BRANCH;
             }
         else if (ilnt == 5) {                           /* branch on ind? */
@@ -852,17 +900,20 @@ CHECK_LENGTH:
                 }
             if (ind_table[D])                           /* reset if needed */
                 ind[D] = 0;
-            }
+            sim_interval -= Li + 1;
+        }
         else {                                          /* branch char eq */
             if (ADDR_ERR (BS)) {                        /* validate B addr */
                 reason = STOP_INVB;
                 break;
                 }
             if ((M[BS] & CHAR) == D) {                  /* char equal? */
+                sim_interval -= Li + 2;
                 BRANCH;
                 }
             else {
                 MM (BS);
+                sim_interval -= Li + 2;
                 }
             }
         break;
@@ -890,6 +941,7 @@ CHECK_LENGTH:
         else {                                          /* decr pointer */
             MM (BS);
             }
+        sim_interval -= Li + 2;
         break;
 
     case OP_BBE:                                        /* branch if bit eq */
@@ -899,6 +951,7 @@ CHECK_LENGTH:
         else {                                          /* decr pointer */
             MM (BS);
             }
+        sim_interval -= Li + 2;
         break;
 
 /* Arithmetic instructions                              A check     B check
@@ -934,12 +987,15 @@ CHECK_LENGTH:
                 t = a & DIGIT;                          /* zap zone bits */
                 wm = M[BS] = (M[BS] & WM) | t;          /* store digit */
                 MM (AS);
+                La++;
                 }
             if (i == 0)
                 i = M[BS] = M[BS] |
                 ((((a & ZONE) == BBIT) ^ (op == OP_ZS))? BBIT: ZONE);
             MM (BS);
+            Lb++;
             } while ((wm & WM) == 0);                   /* stop on B WM */
+            sim_interval -= Li + 1 + La + Lb;
         break;
 
     case OP_A: case OP_S:                               /* add/sub */
@@ -947,6 +1003,7 @@ CHECK_LENGTH:
         a = M[AS];                                      /* get A digit/sign */
         b = M[BS];                                      /* get B digit/sign */
         MM (AS);
+        La++;
         qsign = ((a & ZONE) == BBIT) ^ ((b & ZONE) == BBIT) ^ (op == OP_S);
         t = bcd_to_bin[a & DIGIT];                      /* get A binary */
         t = bcd_to_bin[b & DIGIT] + (qsign? 10 - t: t); /* sum A + B */
@@ -956,6 +1013,7 @@ CHECK_LENGTH:
             b = b | ZONE;
         M[BS] = b;                                      /* store result */
         MM (BS);
+        Lb++;
         if (b & WM) {                                   /* b wm? done */
             if ((qsign != 0) && (carry == 0))           /* eff sub and no carry? */
                 M[bsave] = WM + ((b & ZONE) ^ ABIT) + sum_table[10 - t];
@@ -969,6 +1027,7 @@ CHECK_LENGTH:
             else {
                 a = M[AS];                              /* else get A */
                 MM (AS);
+                La++;
                 }
             b = M[BS];                                  /* get B */
             t = bcd_to_bin[a & DIGIT];                  /* get A binary */
@@ -982,7 +1041,9 @@ CHECK_LENGTH:
                 }
             else M[BS] = (b & WM) + sum_table[t];       /* normal add */
             MM (BS);
+            Lb++;
             } while ((b & WM) == 0);                    /* stop on B WM */
+            sim_interval -= Li + 3 + La + Lb;
         if (reason)                                     /* address err? */
             break;
         if (qsign && (carry == 0)) {                    /* recompl, no carry? */
@@ -992,6 +1053,7 @@ CHECK_LENGTH:
                 carry = (t >= 10);
                 M[bsave] = (M[bsave] & ~DIGIT) | sum_table[t];
                 }
+            sim_interval -= 3 * Lb;
             }
         break;
 
@@ -1011,7 +1073,9 @@ CHECK_LENGTH:
                 ind[IN_LOW] = ind[IN_HGH] ^ 1;
                 }
             MM (AS);                                    /* decr pointers */
+            La++;
             MM (BS);
+            Lb++;
             } while ((wm & WM) == 0);                   /* stop on A, B WM */
         if ((a & WM) && !(b & WM)) {                    /* short A field? */
             ind[IN_EQU] = ind[IN_LOW] = 0;
@@ -1019,6 +1083,7 @@ CHECK_LENGTH:
             }
         if (!(cpu_unit.flags & HLE))                    /* no HLE? */
             ind[IN_EQU] = ind[IN_LOW] = ind[IN_HGH] = 0;
+        sim_interval -= Li + 1 + 2 * Lw;
         break;
 
 /* I/O instructions                                     A check     B check
@@ -1045,42 +1110,54 @@ CHECK_LENGTH:
 */
 
     case OP_R:                                          /* read */
+        sim_interval -= 2;
         if ((reason = iomod (ilnt, D, r_mod)))          /* valid modifier? */
             break;
         reason = read_card (ilnt, D);                   /* read card */
+        sim_interval -= IOREADCARD;
         BS = CDR_BUF + CDR_WIDTH;
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
+            sim_interval -= 3;
             BRANCH;
             }
         break;
 
     case OP_W:                                          /* write */
+        sim_interval -= 2;
         if ((reason = iomod (ilnt, D, w_mod)))          /* valid modifier? */
             break;
         reason = write_line (ilnt, D);                  /* print line */
+        sim_interval -= IOPRINT;
         BS = LPT_BUF + LPT_WIDTH;
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
+            sim_interval -= 3;
             BRANCH;
             }
         break;
 
     case OP_P:                                          /* punch */
+        sim_interval -= 2;
         if ((reason = iomod (ilnt, D, p_mod)))          /* valid modifier? */
             break;
         reason = punch_card (ilnt, D);                  /* punch card */
+        sim_interval -= IOPUNCHCARD;
         BS = CDP_BUF + CDP_WIDTH;
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
+            sim_interval -= 3;
             BRANCH;
             }
         break;
 
     case OP_WR:                                         /* write and read */
+        sim_interval -= 2;
         if ((reason = iomod (ilnt, D, w_mod)))          /* valid modifier? */
             break;
         reason = write_line (ilnt, D);                  /* print line */
         r1 = read_card (ilnt, D);                       /* read card */
+        sim_interval -= IOWRITEREAD;
         BS = CDR_BUF + CDR_WIDTH;
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
+            sim_interval -= 3;
             BRANCH;
             }
         if (reason == SCPE_OK)                          /* merge errors */
@@ -1088,12 +1165,15 @@ CHECK_LENGTH:
         break;
 
     case OP_WP:                                         /* write and punch */
+        sim_interval -= 2;
         if ((reason = iomod (ilnt, D, w_mod)))          /* valid modifier? */
             break;
         reason = write_line (ilnt, D);                  /* print line */
         r1 = punch_card (ilnt, D);                      /* punch card */
+        sim_interval -= IOWRITEPUNCH;
         BS = CDP_BUF + CDP_WIDTH;
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
+            sim_interval -= 3;
             BRANCH;
             }
         if (reason == SCPE_OK)                          /* merge errors */
@@ -1101,12 +1181,15 @@ CHECK_LENGTH:
         break;
 
     case OP_RP:                                         /* read and punch */
+        sim_interval -= 2;
         if ((reason = iomod (ilnt, D, NULL)))           /* valid modifier? */
             break;
         reason = read_card (ilnt, D);                   /* read card */
         r1 = punch_card (ilnt, D);                      /* punch card */
+        sim_interval -= IOREADPUNCH;
         BS = CDP_BUF + CDP_WIDTH;  
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
+            sim_interval -= 3;
             BRANCH;
             }
         if (reason == SCPE_OK)                          /* merge errors */
@@ -1114,11 +1197,13 @@ CHECK_LENGTH:
         break;
 
     case OP_WRP:                                        /* write, read, punch */
+        sim_interval -= 2;
         if ((reason = iomod (ilnt, D, w_mod)))          /* valid modifier? */
             break;
         reason = write_line (ilnt, D);                  /* print line */
         r1 = read_card (ilnt, D);                       /* read card */
         r2 = punch_card (ilnt, D);                      /* punch card */
+        sim_interval -= IOREADWRITEPUNCH;
         BS = CDP_BUF + CDP_WIDTH;
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
             BRANCH;
@@ -1128,19 +1213,23 @@ CHECK_LENGTH:
         break;
 
     case OP_SS:                                         /* select stacker */
+        sim_interval -= 3;
         if ((reason = iomod (ilnt, D, ss_mod)))         /* valid modifier? */
             break;
         if ((reason = select_stack (D)))                /* sel stack, error? */
             break;
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
+            sim_interval -= 3;
             BRANCH;
             }
         break;
 
     case OP_CC:                                         /* carriage control */
+        sim_interval -= 3;
         if ((reason = carriage_control (D)))            /* car ctrl, error? */
             break;
         if ((ilnt == 4) || (ilnt == 5)) {               /* check for branch */
+            sim_interval -= 3;
             BRANCH;
             }
         break;
@@ -1156,6 +1245,7 @@ CHECK_LENGTH:
 */
 
     case OP_MTF:                                        /* magtape function */
+        sim_interval -= Li + 1;
         if (ilnt < 4) {                                 /* too short? */
             reason = STOP_INVL;
             break;
@@ -1214,6 +1304,7 @@ CHECK_LENGTH:
         b = M[BS];                                      /* get B char */
         t = a & DIGIT;                                  /* get A digit */
         MM (AS);
+        La++;
         qsign = ((a & ZONE) == BBIT);                   /* get A field sign */
         qawm = qzero = qbody = 0;                       /* clear other flags */
         qdollar = qaster = qdecimal = 0;                /* clear EPE flags */
@@ -1272,6 +1363,7 @@ CHECK_LENGTH:
                 qbody = 1;                              /* in body */
                 a = M[AS];                              /* next A */
                 MM (AS);
+                La++;
                 t = a & CHAR;                           /* use A char */
                 }
             break;
@@ -1292,17 +1384,25 @@ CHECK_LENGTH:
             }                                           /* end switch */
 
         MM (BS);                                        /* decr B pointer */
+        Lb++;
         } while ((b & WM) == 0);                        /* stop on B WM */
 
-    if (reason)                                         /* address err? */
-        break;
-    if (!qzero)                                         /* rescan? */
-        break;
+        if (reason) {                           /* address err? */
+            sim_interval -= Li + 1 + La + Lb + Ly;
+            break;
+        }
+        if (!qzero) {                                /* rescan? */
+            sim_interval -= Li + 1 + La + Lb + Ly
+                break;
+        }
+
+        Lb = -1;
 
 /* Edit pass 2 - from left to right, suppressing zeroes */
 
     do {
         b = M[++BS];                                    /* get B char */
+        Lb++;
         switch (b & CHAR) {                             /* case on B char */
 
         case BCD_ONE: case BCD_TWO: case BCD_THREE:
@@ -1312,6 +1412,10 @@ CHECK_LENGTH:
             break;
 
         case BCD_ZERO: case BCD_COMMA:                  /* 0 or , */
+            if (b == BCD_ZERO && Ly == 0)
+            {
+                Ly = Lb;
+            }
             if (qzero && !qdecimal)                     /* if supr, blank */
                 M[BS] = qaster? BCD_ASTER: BCD_BLANK;
             break;
@@ -1339,6 +1443,7 @@ CHECK_LENGTH:
     M[BS] = M[BS] & ~WM;                                /* clear B WM */
     if (!qdollar && !(qdecimal && qzero)) {             /* rescan again? */
         BS++;                                           /* BS = addr WM + 1 */
+        Lb++;
         break;
         }
     if (qdecimal && qzero)                              /* no digits? clr $ */
@@ -1392,10 +1497,15 @@ CHECK_LENGTH:
             a = M[AS];                                  /* get mpcd char */
             M[BS] = BCD_ZERO;                           /* zero prod */
             MM (AS);                                    /* decr pointers */
+            Lc++;
             MM (BS);
+            Lm++;
             } while ((a & WM) == 0);                    /* until A WM */
-        if (reason)                                     /* address err? */
-            break;
+            if (reason)                                     /* address err? */
+            {
+                sim_interval -= Li + 3 + 2 * Lc + 5 * Lc * Lm + 7 * Lm;
+                break;
+            }
         M[BS] = BCD_ZERO;                               /* zero hi prod */
         MM (BS);                                        /* addr low mpyr */
         sign = ((M[asave] & ZONE) == BBIT) ^ ((M[BS] & ZONE) == BBIT);
@@ -1429,6 +1539,7 @@ CHECK_LENGTH:
     M[lowprd] = M[lowprd] | ZONE;                       /* assume + */
     if (sign)                                           /* if minus, B only */
         M[lowprd] = M[lowprd] & ~ABIT;
+    sim_interval -= Li + 3 + 2 * Lc + 5 * Lc * Lm + 7 * Lm;
     break;      
 
 /* Divide.  Comments from the PDP-10 based simulator by Len Fehskens.
@@ -1470,17 +1581,23 @@ CHECK_LENGTH:
             if ((bcd_to_bin[a & DIGIT]) != 0)           /* mark non-zero */
                 t = 1;
             MM (AS);
+            Lr++;
             }
         while ((a & WM) == 0);
-        if (reason)                                     /* address err? */
-            break;
+            if (reason)                                     /* address err? */
+            {
+                sim_interval -= Li + 2 + 7 * Lr * Lq + 8 * Lq;
+                break;
+            }
         if (t == 0) {                                   /* div by zero? */
             ind[IN_OVF] = 1;                            /* set ovf indic */
             qs = bsave = BS;                            /* quo, dividend */
             do {
                 b = M[bsave];                           /* find end divd */
                 PP (bsave);                             /* marked by zone */
+                Lq++;
                 } while ((b & ZONE) == 0);
+                sim_interval -= Li + 2 + 7 * Lr * Lq + 8 * Lq;
             if (reason)                                 /* address err? */
                 break;
             if (ADDR_ERR (qs)) {                        /* address err? */
@@ -1519,8 +1636,10 @@ CHECK_LENGTH:
             ind[IN_OVF] = 1;                            /* set ovf indic */
         M[qs] = (M[qs] & WM) | sum_table[quo];          /* store quo digit */
         bsave++;                                        /* adv divd, quo */
+        Lq++;
         qs++;
         } while ((b & ZONE) == 0);                      /* until B sign */
+        sim_interval -= Li + 2 + 7 * Lr * Lq + 8 * Lq;
     if (reason)                                         /* address err? */
         break;
 
@@ -1557,6 +1676,7 @@ CHECK_LENGTH:
         M[AS] = M[AS] | WM;                             /* set B field mark */
         MM (AS);                                        /* decr pointers */
         MM (BS);
+        sim_interval -= Li + 3;
         break;
 
     case OP_CWM:                                        /* clear word mark */
@@ -1564,6 +1684,7 @@ CHECK_LENGTH:
         M[AS] = M[AS] & ~WM;                            /* clear B field mark */
         MM (AS);                                        /* decr pointers */
         MM (BS);
+        sim_interval -= Li + 3;
         break;
 
 /* Clear storage instruction                            A check    B check
@@ -1586,11 +1707,15 @@ CHECK_LENGTH:
 
     case OP_CS:                                         /* clear storage */
         t = (BS / 100) * 100;                           /* lower bound */
-        while (BS >= t)                                 /* clear region */
+        while (BS >= t) {                                /* clear region */
             M[BS--] = 0;
+            Lx++;
+        }
         if (BS < 0)                                     /* wrap if needed */
             BS = BS + MEMSIZE;
+        sim_interval -= Li + 1 + Lx;
         if (ilnt == 7) {                                /* branch variant? */
+            sim_interval -= 6;
             BRANCH_CS;                                  /* special branch */
             }
         break;
@@ -1619,8 +1744,11 @@ CHECK_LENGTH:
         M[BS + 3] = (M[BS + 3] & WM) | store_addr_u (t);
         M[BS + 2] = (M[BS + 2] & (WM + ZONE)) | store_addr_t (t);
         M[BS + 1] = (M[BS + 1] & WM) | store_addr_h (t);
-        if (((a % 4000) + (b % 4000)) >= 4000)          /* carry? */
+        sim_interval -= Li + 8;
+        if (((a % 4000) + (b % 4000)) >= 4000) {       /* carry? */
             BS = BS + 2;
+            sim_interval--;
+        }
         break;
 
 /* Store address instructions                           A-check     B-check
@@ -1643,11 +1771,13 @@ CHECK_LENGTH:
         MM (AS);
         M[AS] = (M[AS] & WM) | store_addr_h (BS);
         MM (AS);
+        sim_interval -= Li + 4 + 1 * (op == OP_SAR);
         break;
 
 /* NOP - no validity checking, all instructions length ok */
 
     case OP_NOP:                                        /* nop */
+        sim_interval -= Li + 1;
         break;
 
 /* HALT - unless length = 4 (branch), no validity checking; all lengths ok */
@@ -1657,10 +1787,12 @@ CHECK_LENGTH:
             hb_pend = 1;
         reason = STOP_HALT;                             /* stop simulator */
         saved_IS = IS;                                  /* commit instruction */
+        sim_interval -= Li + 1;
         break;
 
     default:
         reason = STOP_NXI;                              /* unimplemented */
+        sim_interval--;
         break;
         }                                               /* end switch */
     }                                                   /* end while */
@@ -1832,6 +1964,8 @@ if (pcq_r)
     pcq_r->qptr = 0;
 else return SCPE_IERR;
 sim_brk_types = sim_brk_dflt = SWMASK ('E');
+sim_vm_interval_units = "cycles";
+sim_vm_step_unit = "instruction";
 return SCPE_OK;
 }
 

@@ -295,6 +295,18 @@
 
 #define CRETIOE(f,c)    return ((f)? (c): SCPE_OK)
 
+// 1401 I/O Timing
+#define IOREADCARD 6522
+#define IOPUNCHCARD 20870
+#define IOPRINT 8697
+#define IOWRITEREAD 11594
+#define IOWRITEPUNCH 20870
+#define IOREADPUNCH 20870
+#define IOREADWRITEPUNCH (IOWRITEPUNCH + IOREADCARD)
+#define CYCLE_TIME (0.0115)
+// (printer times approximate), it depends a lot on printer model, etc
+#define TAPE_CHAR_RATE (0.067) //This is assuming a 729 II at 200 cpi.
+
 /* Function prototypes */
 
 int32 bcd2ascii (int32 c, t_bool use_h);

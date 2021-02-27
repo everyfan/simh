@@ -103,6 +103,7 @@
    mark character in the first character position of a record.
 */
 
+#include <math.h>
 #include "i1401_defs.h"
 #include "sim_tape.h"
 
@@ -203,6 +204,7 @@ switch (mod) {                                          /* case on modifier */
         if (DEBUG_PRS (mt_dev))
             fprintf (sim_deb, ">>MT%d: diagnostic read\n", unit);
         st = sim_tape_rdrecf (uptr, dbuf, &tbc, MT_MAXFR); /* read rec */
+        sim_interval -= round((10.8 + TAPE_CHAR_RATE * tbc) / CYCLE_TIME);
         if (st != MTSE_TMK) {                           /* not tmk? */
             if (st == MTSE_RECE)                        /* rec in error? */
                 ind[IN_TAP] = 1;
@@ -221,6 +223,7 @@ switch (mod) {                                          /* case on modifier */
         if (DEBUG_PRS (mt_dev))
             fprintf (sim_deb, ">>MT%d: backspace\n", unit);
         st = sim_tape_sprecr (uptr, &tbc);              /* space rev */
+        sim_interval -= round((52 + TAPE_CHAR_RATE * tbc) / CYCLE_TIME); // This should be 46 if last op was read
         if (st == MTSE_TMK)                             /* ignore TMK */
             st = MTSE_OK;
         break;                                          /* end case */
@@ -236,12 +239,14 @@ switch (mod) {                                          /* case on modifier */
         if (DEBUG_PRS (mt_dev))
             fprintf (sim_deb, ">>MT%d: write tape mark\n", unit);
         st = sim_tape_wrtmk (uptr);                     /* write tmk */
+        sim_interval -= round((10.8 + TAPE_CHAR_RATE) / CYCLE_TIME);
         break;
 
     case BCD_R:                                         /* rewind */
         if (DEBUG_PRS (mt_dev))
             fprintf (sim_deb, ">>MT%d: rewind\n", unit);
         sim_tape_rewind (uptr);                         /* update position */
+        sim_interval -= round((1.2 * 60.0 * 1000) / CYCLE_TIME); // Make this run in background
         return SCPE_OK;
 
     case BCD_U:                                         /* unload */
@@ -295,6 +300,7 @@ switch (mod) {
             fprintf (sim_deb, ">>MT%d: read from %d", unit, BS);
         wm_seen = 0;                                    /* no word mk seen */
         st = sim_tape_rdrecf (uptr, dbuf, &tbc, MT_MAXFR); /* read rec */
+        sim_interval -= round((10.8 + TAPE_CHAR_RATE * tbc) / CYCLE_TIME);
         if (st == MTSE_TMK) {                           /* tape mark? */
             ind[IN_END] = 1;                            /* set indicator */
             tbc = 1;                                    /* one char read */
@@ -381,6 +387,7 @@ switch (mod) {
             fprintf (sim_deb, " to %d\n", BS - 1);
         passed_eot = sim_tape_eot (uptr);               /* passed EOT? */
         st = sim_tape_wrrecf (uptr, dbuf, tbc);         /* write record */
+        sim_interval -= round((10.8 + TAPE_CHAR_RATE * tbc) / CYCLE_TIME);
         if (!passed_eot && sim_tape_eot (uptr))         /* just passed EOT? */
             ind[IN_END] = 1;
         if (ADDR_ERR (BS)) {                            /* check final BS */

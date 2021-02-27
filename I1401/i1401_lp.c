@@ -34,6 +34,7 @@
    13-Apr-01    RMS     Revised for register arrays
 */
 
+#include <math.h>
 #include "i1401_defs.h"
 
 extern uint8 M[];
@@ -228,6 +229,7 @@ else {
     }
 ind[IN_CC9] = CHP (9, cct[cctptr]) != 0;                /* set indicators */
 ind[IN_CC12] = CHP (12, cct[cctptr]) != 0;
+sim_interval -= round((20.0 + 5.0 * (i - 1)) / 0.0115);
 return r;
 }
 
