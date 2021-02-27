@@ -135,6 +135,7 @@
         i1401_sys.c     add sim_devices table entry
 */
 
+#include <assert.h>
 #include "i1401_defs.h"
 #include "i1401_dat.h"
 
@@ -1392,7 +1393,7 @@ CHECK_LENGTH:
             break;
         }
         if (!qzero) {                                /* rescan? */
-            sim_interval -= Li + 1 + La + Lb + Ly
+            sim_interval -= Li + 1 + La + Lb + Ly;
                 break;
         }
 

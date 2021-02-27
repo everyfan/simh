@@ -216,8 +216,8 @@ return SCPE_OK;
 
 t_stat space (int32 count, int32 sflag)
 {
-int32 i;
-t_stat r;
+int32 i = 1;
+t_stat r = 0;
 
 cctptr = (cctptr + count) % cctlnt;                     /* adv cct, mod lnt */
 if (sflag && CHP (0, cct[cctptr]))                      /* skip, top of form? */
@@ -229,7 +229,7 @@ else {
     }
 ind[IN_CC9] = CHP (9, cct[cctptr]) != 0;                /* set indicators */
 ind[IN_CC12] = CHP (12, cct[cctptr]) != 0;
-sim_interval -= round((20.0 + 5.0 * (i - 1)) / 0.0115);
+sim_interval -= (int32) round((20.0 + 5.0 * (i - 1.0) / 0.0115));
 return r;
 }
 
